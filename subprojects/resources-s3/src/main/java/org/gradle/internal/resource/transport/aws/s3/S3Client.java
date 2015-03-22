@@ -21,11 +21,13 @@ import com.amazonaws.AmazonServiceException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.S3ClientOptions;
 import com.amazonaws.services.s3.model.*;
 import com.google.common.base.Optional;
 import org.gradle.api.credentials.AwsCredentials;
+import com.google.common.base.Strings;
 import org.gradle.internal.resource.PasswordCredentials;
 import org.gradle.internal.resource.ResourceException;
 import org.gradle.internal.resource.transport.http.HttpProxySettings;
@@ -53,8 +55,23 @@ public class S3Client {
 
     public S3Client(AwsCredentials awsCredentials, S3ConnectionProperties s3ConnectionProperties) {
         this.s3ConnectionProperties = s3ConnectionProperties;
-        AWSCredentials credentials = awsCredentials == null ? null : new BasicAWSCredentials(awsCredentials.getAccessKey(), awsCredentials.getSecretKey());
+        AWSCredentials credentials = createCredentials(awsCredentials);
         amazonS3Client = createAmazonS3Client(credentials);
+    }
+
+    private AWSCredentials createCredentials(AwsCredentials credentials) {
+        if (credentials == null) {
+            return null;
+        }
+
+        // if credentials were provided through the build script, use those exclusively
+        if (!Strings.isNullOrEmpty(credentials.getAccessKey()) || !Strings.isNullOrEmpty(credentials.getSecretKey())) {
+            // create a credential provider around the given AwsCredentials
+            return new BasicAWSCredentials(credentials.getAccessKey(), credentials.getSecretKey());
+        } else {
+            // otherwise, use the AWS default credential chain
+            return new DefaultAWSCredentialsProviderChain().getCredentials();
+        }
     }
 
     private AmazonS3Client createAmazonS3Client(AWSCredentials credentials) {
