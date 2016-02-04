@@ -116,7 +116,8 @@ public class S3Client {
             ObjectMetadata objectMetadata = new ObjectMetadata();
             objectMetadata.setContentLength(contentLength);
 
-            PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, s3BucketKey, inputStream, objectMetadata);
+            PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, s3BucketKey, inputStream, objectMetadata)
+                .withCannedAcl(CannedAccessControlList.BucketOwnerFullControl);
             LOGGER.debug("Attempting to put resource:[{}] into s3 bucket [{}]", s3BucketKey, bucketName);
 
             amazonS3Client.putObject(putObjectRequest);
