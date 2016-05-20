@@ -21,10 +21,6 @@ import org.gradle.internal.SystemProperties;
 import org.gradle.testkit.runner.BuildTask;
 import org.gradle.testkit.runner.InvalidRunnerConfigurationException;
 import org.gradle.testkit.runner.TaskOutcome;
-import org.gradle.testkit.runner.internal.dist.GradleDistribution;
-import org.gradle.testkit.runner.internal.dist.InstalledGradleDistribution;
-import org.gradle.testkit.runner.internal.dist.URILocatedGradleDistribution;
-import org.gradle.testkit.runner.internal.dist.VersionBasedGradleDistribution;
 import org.gradle.testkit.runner.internal.io.NoCloseOutputStream;
 import org.gradle.testkit.runner.internal.io.SynchronizedOutputStream;
 import org.gradle.tooling.*;
@@ -33,7 +29,9 @@ import org.gradle.tooling.events.ProgressListener;
 import org.gradle.tooling.events.task.*;
 import org.gradle.tooling.internal.consumer.DefaultBuildLauncher;
 import org.gradle.tooling.internal.consumer.DefaultGradleConnector;
+import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.util.CollectionUtils;
+import org.gradle.util.GradleVersion;
 import org.gradle.wrapper.GradleUserHomeLookup;
 
 import java.io.ByteArrayOutputStream;
@@ -78,13 +76,15 @@ public class ToolingApiGradleExecutor implements GradleExecutor {
             parameters.getGradleUserHome(),
             parameters.getProjectDir(),
             parameters.isEmbedded(),
-            parameters.getGradleDistribution()
+            parameters.getGradleProvider()
         );
 
         ProjectConnection connection = null;
+        GradleVersion targetGradleVersion = null;
 
         try {
             connection = gradleConnector.connect();
+            targetGradleVersion = determineTargetGradleVersion(connection);
             DefaultBuildLauncher launcher = (DefaultBuildLauncher) connection.newBuild();
 
             launcher.setStandardOutput(new NoCloseOutputStream(teeOutput(syncOutput, parameters.getStandardOutput())));
@@ -92,8 +92,8 @@ public class ToolingApiGradleExecutor implements GradleExecutor {
 
             launcher.addProgressListener(new TaskExecutionProgressListener(tasks));
 
-            launcher.withArguments(parameters.getBuildArgs().toArray(new String[parameters.getBuildArgs().size()]));
-            launcher.setJvmArguments(parameters.getJvmArgs().toArray(new String[parameters.getJvmArgs().size()]));
+            launcher.withArguments(parameters.getBuildArgs().toArray(new String[0]));
+            launcher.setJvmArguments(parameters.getJvmArgs().toArray(new String[0]));
 
             launcher.withInjectedClassPath(parameters.getInjectedClassPath());
 
@@ -101,7 +101,7 @@ public class ToolingApiGradleExecutor implements GradleExecutor {
         } catch (UnsupportedVersionException e) {
             throw new InvalidRunnerConfigurationException("The build could not be executed due to a feature not being supported by the target Gradle version", e);
         } catch (BuildException t) {
-            return new GradleExecutionResult(output.toString(), tasks, t);
+            return new GradleExecutionResult(new BuildOperationParameters(targetGradleVersion, parameters.isEmbedded()), output.toString(), tasks, t);
         } catch (GradleConnectionException t) {
             StringBuilder message = new StringBuilder("An error occurred executing build with ");
             if (parameters.getBuildArgs().isEmpty()) {
@@ -128,7 +128,12 @@ public class ToolingApiGradleExecutor implements GradleExecutor {
             }
         }
 
-        return new GradleExecutionResult(output.toString(), tasks);
+        return new GradleExecutionResult(new BuildOperationParameters(targetGradleVersion, parameters.isEmbedded()), output.toString(), tasks);
+    }
+
+    private GradleVersion determineTargetGradleVersion(ProjectConnection connection) {
+        BuildEnvironment buildEnvironment = connection.getModel(BuildEnvironment.class);
+        return GradleVersion.version(buildEnvironment.getGradle().getGradleVersion());
     }
 
     private static OutputStream teeOutput(OutputStream capture, OutputStream user) {
@@ -139,9 +144,10 @@ public class ToolingApiGradleExecutor implements GradleExecutor {
         }
     }
 
-    private GradleConnector buildConnector(File gradleUserHome, File projectDir, boolean embedded, GradleDistribution gradleDistribution) {
+    private GradleConnector buildConnector(File gradleUserHome, File projectDir, boolean embedded, GradleProvider gradleProvider) {
         DefaultGradleConnector gradleConnector = (DefaultGradleConnector) GradleConnector.newConnector();
-        useGradleDistribution(gradleConnector, gradleDistribution);
+        gradleConnector.useDistributionBaseDir(GradleUserHomeLookup.gradleUserHome());
+        gradleProvider.applyTo(gradleConnector);
         gradleConnector.useGradleUserHomeDir(gradleUserHome);
         gradleConnector.daemonBaseDir(new File(gradleUserHome, TEST_KIT_DAEMON_DIR_NAME));
         gradleConnector.forProjectDirectory(projectDir);
@@ -149,18 +155,6 @@ public class ToolingApiGradleExecutor implements GradleExecutor {
         gradleConnector.daemonMaxIdleTime(120, TimeUnit.SECONDS);
         gradleConnector.embedded(embedded);
         return gradleConnector;
-    }
-
-    private void useGradleDistribution(DefaultGradleConnector gradleConnector, GradleDistribution gradleDistribution) {
-        gradleConnector.useDistributionBaseDir(GradleUserHomeLookup.gradleUserHome());
-
-        if (gradleDistribution instanceof InstalledGradleDistribution) {
-            gradleConnector.useInstallation(((InstalledGradleDistribution) gradleDistribution).getGradleHome());
-        } else if (gradleDistribution instanceof URILocatedGradleDistribution) {
-            gradleConnector.useDistribution(((URILocatedGradleDistribution) gradleDistribution).getLocation());
-        } else if (gradleDistribution instanceof VersionBasedGradleDistribution) {
-            gradleConnector.useGradleVersion(((VersionBasedGradleDistribution) gradleDistribution).getGradleVersion());
-        }
     }
 
     private class TaskExecutionProgressListener implements ProgressListener {

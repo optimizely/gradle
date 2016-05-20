@@ -17,106 +17,45 @@
 package org.gradle.process.internal;
 
 import org.gradle.api.Action;
-import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.logging.LogLevel;
-import org.gradle.util.GUtil;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.net.URL;
+import java.util.List;
 
 /**
  * <p>A builder which configures and creates a {@link WorkerProcess} instance.</p>
  *
- * <p>A worker process is specified using an {@link Action}. The given action instance is serialized across into the worker process and executed.</p>
+ * <p>A worker process is specified using an {@link Action}. The given action instance is serialized across into the worker process and executed.
+ * The worker action is supplied with a {@link WorkerProcessContext} which it can use to receive messages from and send messages to the server process (ie this process).
+ * </p>
  *
- * <p>A worker process can optionally specify an application classpath. The classes of this classpath are loaded into an isolated ClassLoader, which is made visible to the worker action ClassLoader.
- * Only the packages specified in the set of shared packages are visible to the worker action ClassLoader.</p>
+ * <p>The server process (ie this process) can send messages to and receive message from the worker process using the methods on {@link WorkerProcess#getConnection()}.</p>
  */
-public abstract class WorkerProcessBuilder {
-    private final JavaExecHandleBuilder javaCommand;
-    private final Set<String> packages = new HashSet<String>();
-    private final Set<File> applicationClasspath = new LinkedHashSet<File>();
-    private Action<? super WorkerProcessContext> action;
-    private LogLevel logLevel = LogLevel.LIFECYCLE;
-    private boolean loadApplicationInSystemClassLoader;
-    private String baseName = "Gradle Worker";
-    private File gradleUserHomeDir;
+public interface WorkerProcessBuilder extends WorkerProcessSettings {
+    @Override
+    WorkerProcessBuilder applicationClasspath(Iterable<File> files);
 
-    public WorkerProcessBuilder(FileResolver fileResolver) {
-        javaCommand = new JavaExecHandleBuilder(fileResolver);
-    }
+    @Override
+    WorkerProcessBuilder setBaseName(String baseName);
 
-    public WorkerProcessBuilder setBaseName(String baseName) {
-        this.baseName = baseName;
-        return this;
-    }
+    @Override
+    WorkerProcessBuilder setLogLevel(LogLevel logLevel);
 
-    public String getBaseName() {
-        return baseName;
-    }
+    @Override
+    WorkerProcessBuilder sharedPackages(Iterable<String> packages);
 
-    public WorkerProcessBuilder applicationClasspath(Iterable<File> files) {
-        GUtil.addToCollection(applicationClasspath, files);
-        return this;
-    }
+    @Override
+    WorkerProcessBuilder sharedPackages(String... packages);
 
-    public Set<File> getApplicationClasspath() {
-        return applicationClasspath;
-    }
+    Action<? super WorkerProcessContext> getWorker();
 
-    public WorkerProcessBuilder sharedPackages(String... packages) {
-        sharedPackages(Arrays.asList(packages));
-        return this;
-    }
+    void setImplementationClasspath(List<URL> implementationClasspath);
 
-    public WorkerProcessBuilder sharedPackages(Iterable<String> packages) {
-        GUtil.addToCollection(this.packages, packages);
-        return this;
-    }
-
-    public Set<String> getSharedPackages() {
-        return packages;
-    }
-
-    public WorkerProcessBuilder worker(Action<? super WorkerProcessContext> action) {
-        this.action = action;
-        return this;
-    }
-
-    public Action<? super WorkerProcessContext> getWorker() {
-        return action;
-    }
-
-    public JavaExecHandleBuilder getJavaCommand() {
-        return javaCommand;
-    }
-
-    public LogLevel getLogLevel() {
-        return logLevel;
-    }
-
-    public void setLogLevel(LogLevel logLevel) {
-        this.logLevel = logLevel;
-    }
-
-    public boolean isLoadApplicationInSystemClassLoader() {
-        return loadApplicationInSystemClassLoader;
-    }
-
-    public void setLoadApplicationInSystemClassLoader(boolean loadApplicationInSystemClassLoader) {
-        this.loadApplicationInSystemClassLoader = loadApplicationInSystemClassLoader;
-    }
-
-    public File getGradleUserHomeDir() {
-        return gradleUserHomeDir;
-    }
-
-    public void setGradleUserHomeDir(File gradleUserHomeDir) {
-        this.gradleUserHomeDir = gradleUserHomeDir;
-    }
-
-    public abstract WorkerProcess build();
+    /**
+     * Creates the worker process. The process is not started until {@link WorkerProcess#start()} is called.
+     *
+     * <p>This method can be called multiple times, to create multiple worker processes.</p>
+     */
+    WorkerProcess build();
 }

@@ -23,6 +23,8 @@ import org.gradle.api.internal.changedetection.TaskArtifactStateRepository;
 import org.gradle.api.internal.changedetection.changes.DefaultTaskArtifactStateRepository;
 import org.gradle.api.internal.changedetection.changes.ShortCircuitTaskArtifactStateRepository;
 import org.gradle.api.internal.changedetection.state.*;
+import org.gradle.api.internal.file.FileCollectionFactory;
+import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.hash.DefaultHasher;
 import org.gradle.api.internal.tasks.TaskExecuter;
 import org.gradle.api.internal.tasks.execution.*;
@@ -35,15 +37,17 @@ import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.environment.GradleBuildEnvironment;
 import org.gradle.internal.event.ListenerManager;
 import org.gradle.internal.id.RandomLongIdGenerator;
+import org.gradle.internal.nativeplatform.filesystem.FileSystem;
 import org.gradle.internal.operations.BuildOperationProcessor;
 import org.gradle.internal.operations.DefaultBuildOperationProcessor;
+import org.gradle.internal.operations.DefaultBuildOperationQueueFactory;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.serialize.DefaultSerializerRegistry;
 import org.gradle.internal.serialize.SerializerRegistry;
 
 public class TaskExecutionServices {
 
-    TaskExecuter createTaskExecuter(TaskArtifactStateRepository repository, ListenerManager listenerManager, Gradle gradle) {
+    TaskExecuter createTaskExecuter(TaskArtifactStateRepository repository, ListenerManager listenerManager, Gradle gradle, CachingTreeVisitor treeVisitor) {
         // TODO - need a more comprehensible way to only collect inputs for the outer build
         //      - we are trying to ignore buildSrc here, but also avoid weirdness with use of GradleBuild tasks
         boolean isOuterBuild = gradle.getParent() == null;
@@ -57,7 +61,9 @@ public class TaskExecutionServices {
                     new SkipEmptySourceFilesTaskExecuter(
                         taskInputsListener,
                         new ValidatingTaskExecuter(
-                            new SkipUpToDateTaskExecuter(repository,
+                            new SkipUpToDateTaskExecuter(
+                                repository,
+                                treeVisitor,
                                 new PostExecutionAnalysisTaskExecuter(
                                     new ExecuteActionsTaskExecuter(
                                         listenerManager.getBroadcaster(TaskActionListener.class)
@@ -81,22 +87,29 @@ public class TaskExecutionServices {
         return new DefaultTaskArtifactStateCacheAccess(gradle, cacheRepository, decorator);
     }
 
-    FileTreeElementSnapshotter createFileSnapshotter(TaskArtifactStateCacheAccess cacheAccess, StringInterner stringInterner) {
+    FileSnapshotter createFileSnapshotter(TaskArtifactStateCacheAccess cacheAccess, StringInterner stringInterner) {
         return new CachingFileSnapshotter(new DefaultHasher(), cacheAccess, stringInterner);
     }
 
-    TaskArtifactStateRepository createTaskArtifactStateRepository(Instantiator instantiator, TaskArtifactStateCacheAccess cacheAccess, StartParameter startParameter, FileTreeElementSnapshotter fileSnapshotter, StringInterner stringInterner) {
-        FileCollectionSnapshotter fileCollectionSnapshotter = new DefaultFileCollectionSnapshotter(fileSnapshotter, cacheAccess, stringInterner);
+    CachingTreeVisitor createTreeVisitor() {
+        return new CachingTreeVisitor();
+    }
 
-        FileCollectionSnapshotter outputFilesSnapshotter = new OutputFilesCollectionSnapshotter(fileCollectionSnapshotter, new RandomLongIdGenerator(), cacheAccess, stringInterner);
+    TaskArtifactStateRepository createTaskArtifactStateRepository(Instantiator instantiator, TaskArtifactStateCacheAccess cacheAccess, StartParameter startParameter, FileSnapshotter fileSnapshotter,
+                                                                  StringInterner stringInterner, FileResolver fileResolver, FileSystem fileSystem, FileCollectionFactory fileCollectionFactory, CachingTreeVisitor treeVisitor) {
+        FileCollectionSnapshotter fileCollectionSnapshotter = new DefaultFileCollectionSnapshotter(fileSnapshotter, cacheAccess, stringInterner, fileResolver, treeVisitor);
+        FileCollectionSnapshotter discoveredFileCollectionSnapshotter = new MinimalFileSetSnapshotter(fileSnapshotter, cacheAccess, stringInterner, fileResolver, fileSystem);
 
-        SerializerRegistry<FileCollectionSnapshot> serializerRegistry = new DefaultSerializerRegistry<FileCollectionSnapshot>();
+        FileCollectionSnapshotter outputFilesSnapshotter = new OutputFilesCollectionSnapshotter(fileCollectionSnapshotter, stringInterner);
+
+        SerializerRegistry serializerRegistry = new DefaultSerializerRegistry();
         fileCollectionSnapshotter.registerSerializers(serializerRegistry);
         outputFilesSnapshotter.registerSerializers(serializerRegistry);
+        discoveredFileCollectionSnapshotter.registerSerializers(serializerRegistry);
 
         TaskHistoryRepository taskHistoryRepository = new CacheBackedTaskHistoryRepository(cacheAccess,
             new CacheBackedFileSnapshotRepository(cacheAccess,
-                serializerRegistry.build(),
+                serializerRegistry.build(FileCollectionSnapshot.class),
                 new RandomLongIdGenerator()),
             stringInterner);
 
@@ -107,7 +120,9 @@ public class TaskExecutionServices {
                 taskHistoryRepository,
                 instantiator,
                 outputFilesSnapshotter,
-                fileCollectionSnapshotter
+                fileCollectionSnapshotter,
+                discoveredFileCollectionSnapshotter,
+                fileCollectionFactory
             )
         );
     }
@@ -117,6 +132,6 @@ public class TaskExecutionServices {
     }
 
     BuildOperationProcessor createBuildOperationProcessor(StartParameter startParameter, ExecutorFactory executorFactory) {
-        return new DefaultBuildOperationProcessor(executorFactory, startParameter.getMaxWorkerCount());
+        return new DefaultBuildOperationProcessor(new DefaultBuildOperationQueueFactory(), executorFactory, startParameter.getMaxWorkerCount());
     }
 }

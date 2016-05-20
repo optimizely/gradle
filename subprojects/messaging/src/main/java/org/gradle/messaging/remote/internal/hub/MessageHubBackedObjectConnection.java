@@ -20,9 +20,7 @@ import org.gradle.api.Action;
 import org.gradle.internal.concurrent.CompositeStoppable;
 import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.concurrent.ThreadSafe;
-import org.gradle.internal.serialize.Serializer;
-import org.gradle.internal.serialize.Serializers;
-import org.gradle.internal.serialize.kryo.JavaSerializer;
+import org.gradle.internal.serialize.SerializerRegistry;
 import org.gradle.internal.serialize.StatefulSerializer;
 import org.gradle.internal.serialize.kryo.TypeSafeSerializer;
 import org.gradle.messaging.dispatch.MethodInvocation;
@@ -30,9 +28,7 @@ import org.gradle.messaging.dispatch.ProxyDispatchAdapter;
 import org.gradle.messaging.dispatch.ReflectionDispatch;
 import org.gradle.messaging.remote.ObjectConnection;
 import org.gradle.messaging.remote.internal.ConnectCompletion;
-import org.gradle.messaging.remote.internal.Connection;
-import org.gradle.messaging.remote.internal.KryoBackedMessageSerializer;
-import org.gradle.messaging.remote.internal.MessageSerializer;
+import org.gradle.messaging.remote.internal.RemoteConnection;
 import org.gradle.messaging.remote.internal.hub.protocol.InterHubMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,9 +37,9 @@ public class MessageHubBackedObjectConnection implements ObjectConnection {
     private static final Logger LOGGER = LoggerFactory.getLogger(MessageHubBackedObjectConnection.class);
     private final MessageHub hub;
     private ConnectCompletion completion;
-    private Connection<InterHubMessage> connection;
+    private RemoteConnection<InterHubMessage> connection;
     private ClassLoader methodParamClassLoader;
-    private Serializer<Object[]> paramSerializer;
+    private SerializerRegistry paramSerializers;
 
     public MessageHubBackedObjectConnection(ExecutorFactory executorFactory, ConnectCompletion completion) {
         this.hub = new MessageHub(completion.toString(), executorFactory, new Action<Throwable>() {
@@ -52,6 +48,11 @@ public class MessageHubBackedObjectConnection implements ObjectConnection {
             }
         });
         this.completion = completion;
+    }
+
+    @Override
+    public void useJavaSerializationForParameters(ClassLoader incomingMessageClassLoader) {
+        methodParamClassLoader = incomingMessageClassLoader;
     }
 
     public <T> void addIncoming(Class<T> type, T instance) {
@@ -69,12 +70,8 @@ public class MessageHubBackedObjectConnection implements ObjectConnection {
         return adapter.getSource();
     }
 
-    public void useDefaultSerialization(ClassLoader methodParamClassLoader) {
-        this.methodParamClassLoader = methodParamClassLoader;
-    }
-
-    public void useParameterSerializer(Serializer<Object[]> serializer) {
-        this.paramSerializer = serializer;
+    public void useParameterSerializers(SerializerRegistry serializer) {
+        this.paramSerializers = serializer;
     }
 
     public void connect() {
@@ -82,19 +79,18 @@ public class MessageHubBackedObjectConnection implements ObjectConnection {
             methodParamClassLoader = getClass().getClassLoader();
         }
 
-        StatefulSerializer<Object[]> paramSerializer;
-        if (this.paramSerializer != null) {
-            paramSerializer = Serializers.stateful(this.paramSerializer);
+        MethodArgsSerializer argsSerializer;
+        if (paramSerializers != null) {
+            argsSerializer = new DefaultMethodArgsSerializer(paramSerializers);
         } else {
-            paramSerializer = new JavaSerializer<Object[]>(methodParamClassLoader);
+            argsSerializer = new JavaSerializationBackedMethodArgsSerializer(methodParamClassLoader);
         }
 
-        MessageSerializer<InterHubMessage> serializer = new KryoBackedMessageSerializer<InterHubMessage>(
-                new InterHubMessageSerializer(
-                        new TypeSafeSerializer<MethodInvocation>(MethodInvocation.class,
-                                new MethodInvocationSerializer(
-                                        methodParamClassLoader,
-                                        paramSerializer))));
+        StatefulSerializer<InterHubMessage> serializer = new InterHubMessageSerializer(
+                new TypeSafeSerializer<MethodInvocation>(MethodInvocation.class,
+                        new MethodInvocationSerializer(
+                                methodParamClassLoader,
+                                argsSerializer)));
 
         connection = completion.create(serializer);
         hub.addConnection(connection);

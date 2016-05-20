@@ -15,23 +15,24 @@
  */
 
 package org.gradle.performance
-
+import org.gradle.performance.categories.Experiment
 import org.gradle.performance.categories.NativePerformanceTest
 import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
 import static org.gradle.performance.measure.Duration.millis
 
-@Category(NativePerformanceTest)
+@Category([Experiment, NativePerformanceTest])
 class NativeBuildPerformanceTest extends AbstractCrossVersionPerformanceTest {
     @Unroll('Project #type native build')
     def "build" () {
         given:
         runner.testId = "native build ${type}"
         runner.testProject = "${type}Native"
-        runner.tasksToRun = [ "clean", "assemble" ]
+        runner.tasksToRun = ["clean", "assemble"]
         runner.maxExecutionTimeRegression = maxExecutionTimeRegression
-        runner.targetVersions = [ '2.3', '2.4', '2.8', 'last' ]
+        runner.targetVersions = ['2.11', 'last']
+        runner.useDaemon = true
 
         when:
         def result = runner.run()
@@ -43,17 +44,17 @@ class NativeBuildPerformanceTest extends AbstractCrossVersionPerformanceTest {
         type           | maxExecutionTimeRegression
         "small"        | millis(500)
         "medium"       | millis(500)
-        "big"          | millis(1500)
-        "multi"        | millis(1500)
+        "big"          | millis(2500)
+        "multi"        | millis(2500)
     }
 
     def "Many projects native build" () {
         given:
         runner.testId = "native build many projects"
         runner.testProject = "manyProjectsNative"
-        runner.tasksToRun = [ "clean", "assemble" ]
+        runner.tasksToRun = ["clean", "assemble"]
         runner.maxExecutionTimeRegression = millis(1000)
-        runner.targetVersions = [ '2.3', '2.4', '2.8', 'last' ]
+        runner.targetVersions = ['2.11', 'last']
         runner.useDaemon = true
 
         when:

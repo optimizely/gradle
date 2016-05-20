@@ -16,11 +16,15 @@
 
 package org.gradle.testkit.runner
 
+import org.gradle.testkit.runner.fixtures.InspectsExecutedTasks
+
 import static org.gradle.testkit.runner.TaskOutcome.*
+
 /**
  * Tests more intricate aspects of the BuildResult object
  */
-class GradleRunnerResultIntegrationTest extends AbstractGradleRunnerIntegrationTest {
+@InspectsExecutedTasks
+class GradleRunnerResultIntegrationTest extends BaseGradleRunnerIntegrationTest {
 
     def "execute task actions marked as up-to-date or skipped"() {
         given:
@@ -48,21 +52,22 @@ class GradleRunnerResultIntegrationTest extends AbstractGradleRunnerIntegrationT
 
     def "executed buildSrc tasks are not part of tasks in result object"() {
         given:
-        testProjectDir.createDir('buildSrc')
-        buildFile << helloWorldTask()
+        file('buildSrc/src/main/groovy/pkg/Message.groovy') << """
+            package pkg
+            class Message { public static final String MSG = "::msg::" }
+        """
+        buildScript """
+            task echoMsg << {
+                println pkg.Message.MSG
+            }
+        """
 
         when:
-        def result = runner('helloWorld')
+        def result = runner('echoMsg')
             .build()
 
         then:
-        result.output.contains(':buildSrc:compileJava UP-TO-DATE')
-        result.output.contains(':buildSrc:build')
-        result.tasks.collect { it.path } == [':helloWorld']
-        result.taskPaths(SUCCESS) == [':helloWorld']
-        result.taskPaths(SKIPPED).empty
-        result.taskPaths(UP_TO_DATE).empty
-        result.taskPaths(FAILED).empty
+        result.tasks.path == [':echoMsg']
     }
 
     def "task order represents execution order"() {

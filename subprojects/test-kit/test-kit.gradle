@@ -25,7 +25,7 @@ task jar(type: JarJarJar) {
     exclude 'gradle-plugins.properties'
     exclude { details ->
         details.file.name.endsWith('-classpath.properties') &&
-        details.file.name != 'gradle-test-kit-classpath.properties'
+                details.file.name != 'gradle-test-kit-classpath.properties'
     }
     exclude 'net/rubygrapefruit/platform/**'
     exclude 'com/sun/jna/**'

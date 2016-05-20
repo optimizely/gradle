@@ -16,71 +16,53 @@
 
 package org.gradle.model.internal.registry;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.gradle.api.Nullable;
+import org.gradle.model.RuleSource;
 import org.gradle.model.internal.core.*;
 import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor;
+import org.gradle.model.internal.inspect.ExtractedRuleSource;
 import org.gradle.model.internal.type.ModelType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Set;
 
 import static org.gradle.model.internal.core.ModelNode.State.Discovered;
+import static org.gradle.model.internal.core.ModelNodes.withType;
 
 abstract class ModelNodeInternal implements MutableModelNode {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(ModelNodeInternal.class);
-
-    private ModelRegistration registration;
+    protected final ModelRegistryInternal modelRegistry;
+    private final ModelPath path;
+    private final ModelRuleDescriptor descriptor;
     private final Set<ModelNodeInternal> dependencies = Sets.newHashSet();
     private final Set<ModelNodeInternal> dependents = Sets.newHashSet();
     private ModelNode.State state = ModelNode.State.Registered;
     private boolean hidden;
     private final List<ModelRuleDescriptor> executedRules = Lists.newArrayList();
-    private final List<RuleBinder> initializerRuleBinders = Lists.newArrayList();
+    private final List<RuleBinder> registrationActionBinders = Lists.newArrayList();
     private final List<ModelProjection> projections = Lists.newArrayList();
     private final ModelProjection projection;
 
-    public ModelNodeInternal(ModelRegistration registration) {
-        this.registration = registration;
+    public ModelNodeInternal(ModelRegistryInternal modelRegistry, ModelRegistration registration) {
+        this.modelRegistry = modelRegistry;
+        this.path = registration.getPath();
+        this.descriptor = registration.getDescriptor();
+        this.hidden = registration.isHidden();
         this.projection = new ChainingModelProjection(projections);
     }
 
-    public ModelRegistration getRegistration() {
-        return registration;
+    /**
+     * Returns the binders of the rules created as part of the node's creation. These binders should not be considered
+     * unbound in case the node is removed.
+     */
+    public List<RuleBinder> getRegistrationActionBinders() {
+        return registrationActionBinders;
     }
 
-    public void replaceRegistration(ModelRegistration registration) {
-        if (isAtLeast(State.Created)) {
-            throw new IllegalStateException("Cannot replace registration rule binder when node is already created (node: " + this + ", state: " + getState() + ")");
-        }
-
-        // Can't change type
-        // TODO:LPTR We can't ensure this with projections being determined later in the node lifecycle, should remove this or fix in some other way
-        // if (!oldRegistration.getPromise().equals(newRegistration.getPromise())) {
-        //     throw new IllegalStateException("can not replace node " + getPath() + " with different promise (old: " + oldRegistration.getPromise() + ", new: " + newRegistration.getPromise() + ")");
-        // }
-
-        // Can't have different inputs
-        if (!registration.getInputs().equals(this.registration.getInputs())) {
-            Joiner joiner = Joiner.on(", ");
-            throw new IllegalStateException("can not replace node " + getPath() + " with registration with different input bindings (old: [" + joiner.join(this.registration.getInputs()) + "], new: [" + joiner.join(registration.getInputs()) + "])");
-        }
-
-        this.registration = registration;
-    }
-
-    public List<RuleBinder> getInitializerRuleBinders() {
-        return initializerRuleBinders;
-    }
-
-    public void addInitializerRuleBinder(RuleBinder binder) {
-        initializerRuleBinders.add(binder);
+    public void addRegistrationActionBinder(RuleBinder binder) {
+        registrationActionBinders.add(binder);
     }
 
     @Override
@@ -91,11 +73,6 @@ abstract class ModelNodeInternal implements MutableModelNode {
     @Override
     public void setHidden(boolean hidden) {
         this.hidden = hidden;
-    }
-
-    @Override
-    public boolean isEphemeral() {
-        return registration.isEphemeral();
     }
 
     public void notifyFired(RuleBinder binder) {
@@ -116,14 +93,17 @@ abstract class ModelNodeInternal implements MutableModelNode {
         return dependents;
     }
 
+    @Override
     public ModelPath getPath() {
-        return registration.getPath();
+        return path;
     }
 
+    @Override
     public ModelRuleDescriptor getDescriptor() {
-        return registration.getDescriptor();
+        return descriptor;
     }
 
+    @Override
     public ModelNode.State getState() {
         return state;
     }
@@ -132,6 +112,7 @@ abstract class ModelNodeInternal implements MutableModelNode {
         this.state = state;
     }
 
+    @Override
     public boolean isMutable() {
         return state.mutable;
     }
@@ -140,16 +121,26 @@ abstract class ModelNodeInternal implements MutableModelNode {
     @Override
     public abstract ModelNodeInternal getLink(String name);
 
+    @Override
+    public boolean canBeViewedAs(ModelType<?> type) {
+        return getPromise().canBeViewedAs(type);
+    }
+
+    @Override
+    public Iterable<String> getTypeDescriptions() {
+        return getPromise().getTypeDescriptions(this);
+    }
+
     public ModelPromise getPromise() {
         if (!state.isAtLeast(State.Discovered)) {
-            throw new IllegalStateException(String.format("Cannot get promise for %s in state %s when not yet discovered", getPath(), state));
+            throw new IllegalStateException(String.format("Cannot get promise for '%s' in state %s.", getPath(), state));
         }
         return projection;
     }
 
     public ModelAdapter getAdapter() {
         if (!state.isAtLeast(State.Created)) {
-            throw new IllegalStateException(String.format("Cannot get adapter for %s in state %s when node is not created", getPath(), state));
+            throw new IllegalStateException(String.format("Cannot get adapter for '%s' in state %s.", getPath(), state));
         }
         return projection;
     }
@@ -161,7 +152,7 @@ abstract class ModelNodeInternal implements MutableModelNode {
     @Override
     public void addProjection(ModelProjection projection) {
         if (isAtLeast(Discovered)) {
-            throw new IllegalStateException(String.format("Cannot add projections to node '%s' as it is already %s", getPath(), getState()));
+            throw new IllegalStateException(String.format("Cannot add projections to '%s' as it is already in state %s.", getPath(), state));
         }
         projections.add(projection);
     }
@@ -178,30 +169,6 @@ abstract class ModelNodeInternal implements MutableModelNode {
         return this.getState().compareTo(state) >= 0;
     }
 
-    public void reset() {
-        if (isAtLeast(State.Created)) {
-            setState(State.Discovered);
-            resetPrivateData();
-
-            for (ModelNodeInternal dependent : dependents) {
-                if (LOGGER.isInfoEnabled()) {
-                    LOGGER.info("resetting dependent node of {}: {}", this, dependent);
-                }
-                dependent.reset();
-            }
-
-            for (ModelNodeInternal child : getLinks()) {
-                if (LOGGER.isInfoEnabled()) {
-                    LOGGER.info("resetting child node of {}: {}", this, child);
-                }
-
-                child.reset();
-            }
-        }
-    }
-
-    protected abstract void resetPrivateData();
-
     @Override
     public Optional<String> getValueDescription() {
         this.ensureUsable();
@@ -213,11 +180,14 @@ abstract class ModelNodeInternal implements MutableModelNode {
         this.ensureUsable();
         ModelView<?> modelView = getAdapter().asImmutable(ModelType.untyped(), this, null);
         if (modelView != null) {
-            ModelType<?> type = modelView.getType();
-            if (type != null) {
-                return Optional.of(type.toString());
+            try {
+                ModelType<?> type = modelView.getType();
+                if (type != null) {
+                    return Optional.of(type.toString());
+                }
+            } finally {
+                modelView.close();
             }
-            modelView.close();
         }
         return Optional.absent();
     }
@@ -225,6 +195,49 @@ abstract class ModelNodeInternal implements MutableModelNode {
     @Override
     public List<ModelRuleDescriptor> getExecutedRules() {
         return this.executedRules;
+    }
+
+    @Override
+    public boolean hasLink(String name, ModelType<?> type) {
+        return hasLink(name, withType(type));
+    }
+
+    @Override
+    public Iterable<? extends MutableModelNode> getLinks(ModelType<?> type) {
+        return getLinks(withType(type));
+    }
+
+    @Override
+    public Set<String> getLinkNames(ModelType<?> type) {
+        return getLinkNames(withType(type));
+    }
+
+    @Override
+    public void defineRulesForLink(ModelActionRole role, ModelAction action) {
+        applyToLink(role, action);
+    }
+
+    @Override
+    public void defineRulesFor(NodePredicate predicate, ModelActionRole role, ModelAction action) {
+        applyTo(predicate, role, action);
+    }
+
+    @Override
+    public void applyToSelf(ModelActionRole role, ModelAction action) {
+        DefaultModelRegistry.checkNodePath(this, action);
+        modelRegistry.bind(action.getSubject(), role, action);
+    }
+
+    @Override
+    public void applyToSelf(ExtractedRuleSource<?> rules) {
+        rules.apply(modelRegistry, this);
+    }
+
+    @Override
+    public void applyToSelf(Class<? extends RuleSource> rulesClass) {
+        ExtractedRuleSource<?> rules = modelRegistry.newRuleSource(rulesClass);
+        rules.assertNoPlugins();
+        rules.apply(modelRegistry, this);
     }
 
     @Override

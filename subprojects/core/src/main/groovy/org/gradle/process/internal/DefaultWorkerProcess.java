@@ -111,13 +111,14 @@ public class DefaultWorkerProcess implements WorkerProcess {
         return connection;
     }
 
-    public void start() {
+    public WorkerProcess start() {
         try {
             doStart();
         } catch (Throwable t) {
             cleanup();
             throw UncheckedException.throwAsUncheckedException(t);
         }
+        return this;
     }
 
     private void doStart() {
@@ -166,6 +167,7 @@ public class DefaultWorkerProcess implements WorkerProcess {
 
     private void cleanup() {
         CompositeStoppable stoppable;
+        execHandle.abort();
         lock.lock();
         try {
             stoppable = CompositeStoppable.stoppable(acceptor, connection);

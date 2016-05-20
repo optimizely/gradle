@@ -39,7 +39,6 @@ public class NotationParserBuilder<T> {
 
     private NotationParserBuilder(TypeInfo<T> resultingType) {
         this.resultingType = resultingType;
-        typeDisplayName = resultingType.getTargetType().equals(String.class) ? "a String" : "an object of type ".concat(resultingType.getTargetType().getSimpleName());
     }
 
     /**
@@ -89,7 +88,7 @@ public class NotationParserBuilder<T> {
     /**
      * Adds a converter that accepts any CharSequence notation.
      */
-    public NotationParserBuilder<T> fromCharSequence(NotationConverter<String, ? extends T> converter) {
+    public NotationParserBuilder<T> fromCharSequence(NotationConverter<? super String, ? extends T> converter) {
         this.notationParsers.add(new CharSequenceNotationConverter<Object, T>(converter));
         return this;
     }
@@ -120,6 +119,9 @@ public class NotationParserBuilder<T> {
     }
 
     private <S> NotationParser<Object, S> wrapInErrorHandling(NotationParser<Object, S> parser) {
+        if (typeDisplayName == null) {
+            typeDisplayName = resultingType.getTargetType().equals(String.class) ? "a String" : "an object of type ".concat(resultingType.getTargetType().getSimpleName());
+        }
         return new ErrorHandlingNotationParser<Object, S>(typeDisplayName, invalidNotationMessage, allowNullInput, parser);
     }
 

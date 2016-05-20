@@ -24,7 +24,7 @@ import org.gradle.process.ExecResult;
  * using a supplied {@link org.gradle.messaging.remote.ObjectConnection}.
  */
 public interface WorkerProcess {
-    void start();
+    WorkerProcess start();
 
     /**
      * The connection to the worker. Call {@link org.gradle.messaging.remote.ObjectConnection#connect()} to complete the connection.

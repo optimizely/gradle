@@ -16,8 +16,6 @@
 
 package org.gradle.messaging.remote.internal.hub
 
-import org.gradle.internal.serialize.DefaultSerializer
-import org.gradle.internal.serialize.Serializers
 import org.gradle.internal.serialize.kryo.KryoBackedDecoder
 import org.gradle.internal.serialize.kryo.KryoBackedEncoder
 import org.gradle.messaging.dispatch.MethodInvocation
@@ -25,7 +23,7 @@ import spock.lang.Specification
 
 class MethodInvocationSerializerTest extends Specification {
     final classLoader = new GroovyClassLoader(getClass().classLoader)
-    final serializer = new MethodInvocationSerializer(classLoader, Serializers.stateful(new DefaultSerializer<Object[]>(getClass().classLoader)))
+    final serializer = new MethodInvocationSerializer(classLoader, new JavaSerializationBackedMethodArgsSerializer(classLoader))
 
     def "serializes a method invocation with parameters"() {
         def method = String.class.getMethod("substring", Integer.TYPE, Integer.TYPE)
@@ -38,6 +36,23 @@ class MethodInvocationSerializerTest extends Specification {
         then:
         result.method == method
         result.arguments == [1, 2] as Object[]
+    }
+
+    interface Thing {
+        String doStuff(Thing[] things)
+    }
+
+    def "serializes a method invocation with array type parameters"() {
+        def method = Thing.class.getMethod("doStuff", Thing[].class)
+        def invocation = new MethodInvocation(method, [[] as Thing[]] as Object[])
+
+        when:
+        def serialized = serialize(invocation)
+        def result = deserialize(serialized)
+
+        then:
+        result.method == method
+        result.arguments == [[] as Thing[]] as Object[]
     }
 
     def "replaces a method that has already been seen with an integer ID"() {

@@ -15,7 +15,7 @@
  */
 package org.gradle.messaging.remote;
 
-import org.gradle.internal.serialize.Serializer;
+import org.gradle.internal.serialize.SerializerRegistry;
 
 public interface ObjectConnectionBuilder {
     /**
@@ -40,18 +40,10 @@ public interface ObjectConnectionBuilder {
      */
     <T> void addIncoming(Class<T> type, T instance);
 
-    /**
-     * Use the specified serializer for all incoming and outgoing method parameters.
-     */
-    void useParameterSerializer(Serializer<Object[]> serializer);
+    void useJavaSerializationForParameters(ClassLoader incomingMessageClassLoader);
 
     /**
-     * Use Java serialization for the parameters of incoming and outgoing method calls, with the specified ClassLoader used to deserialize incoming
-     * method parameters.
-     *
-     * <p>This method is generally not required as the ClassLoader is inferred from the incoming and outgoing types.</p>
-     *
-     * @param methodParamClassLoader The ClassLoader to use.
+     * Use the specified serializers for all incoming and outgoing method parameters.
      */
-    void useDefaultSerialization(ClassLoader methodParamClassLoader);
+    void useParameterSerializers(SerializerRegistry serializers);
 }

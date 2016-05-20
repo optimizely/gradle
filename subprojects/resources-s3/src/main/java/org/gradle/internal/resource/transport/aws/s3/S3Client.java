@@ -29,7 +29,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import org.gradle.api.artifacts.repositories.PasswordCredentials;
 import org.gradle.api.credentials.AwsCredentials;
-import org.gradle.internal.resource.ResourceException;
+import org.gradle.internal.resource.ResourceExceptions;
 import org.gradle.internal.resource.transport.http.HttpProxySettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,7 +122,7 @@ public class S3Client {
 
             amazonS3Client.putObject(putObjectRequest);
         } catch (AmazonClientException e) {
-            throw ResourceException.putFailed(destination, e);
+            throw ResourceExceptions.putFailed(destination, e);
         }
     }
 
@@ -203,7 +203,7 @@ public class S3Client {
             if (null != errorCode && errorCode.equalsIgnoreCase("NoSuchKey")) {
                 return null;
             }
-            throw ResourceException.getFailed(uri, e);
+            throw ResourceExceptions.getFailed(uri, e);
         }
     }
 

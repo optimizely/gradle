@@ -16,40 +16,35 @@
 
 package org.gradle.api.internal.file.archive.compression;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.tools.bzip2.CBZip2InputStream;
 import org.apache.tools.bzip2.CBZip2OutputStream;
-import org.gradle.api.internal.resources.URIBuilder;
-import org.gradle.api.resources.ReadableResource;
-import org.gradle.api.resources.ResourceException;
+import org.gradle.api.resources.internal.ReadableResourceInternal;
+import org.gradle.internal.resource.ResourceExceptions;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.URI;
+import java.io.*;
 
-public class Bzip2Archiver implements CompressedReadableResource {
+public class Bzip2Archiver extends AbstractArchiver {
+    public Bzip2Archiver(ReadableResourceInternal resource) {
+        super(resource);
+    }
 
-    private final ReadableResource resource;
-    private final URI uri;
-
-    public Bzip2Archiver(ReadableResource resource) {
-        assert resource != null;
-        this.resource = resource;
-        this.uri = new URIBuilder(resource.getURI()).schemePrefix("bzip2:").build();
+    protected String getSchemePrefix() {
+        return "bzip2:";
     }
 
     public static ArchiveOutputStreamFactory getCompressor() {
         // this is not very beautiful but at some point we will
         // get rid of ArchiveOutputStreamFactory in favor of the writable Resource
         return new ArchiveOutputStreamFactory() {
-            public OutputStream createArchiveOutputStream(File destination) {
+            public OutputStream createArchiveOutputStream(File destination) throws FileNotFoundException {
+                OutputStream outStr = new FileOutputStream(destination);
                 try {
-                    OutputStream outStr = new FileOutputStream(destination);
                     outStr.write('B');
                     outStr.write('Z');
                     return new CBZip2OutputStream(outStr);
                 } catch (Exception e) {
+                    IOUtils.closeQuietly(outStr);
                     String message = String.format("Unable to create bzip2 output stream for file %s", destination);
                     throw new RuntimeException(message, e);
                 }
@@ -65,25 +60,8 @@ public class Bzip2Archiver implements CompressedReadableResource {
             is.read(skip);
             return new CBZip2InputStream(is);
         } catch (Exception e) {
-            String message = String.format("Unable to create bzip2 input stream for resource %s.", resource.getDisplayName());
-            throw new ResourceException(message, e);
+            IOUtils.closeQuietly(is);
+            throw ResourceExceptions.readFailed(resource.getDisplayName(), e);
         }
-    }
-
-    public String getDisplayName() {
-        return resource.getDisplayName();
-    }
-
-    public URI getURI() {
-        return uri;
-    }
-
-    public String getBaseName() {
-        return resource.getBaseName();
-    }
-
-    @Override
-    public ReadableResource getCompressedResource() {
-        return resource;
     }
 }

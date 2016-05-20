@@ -18,24 +18,25 @@ package org.gradle.performance.fixture
 
 import groovy.transform.CompileStatic
 import groovy.transform.EqualsAndHashCode
+import org.gradle.api.Nullable
 
 @CompileStatic
 @EqualsAndHashCode
-class BuildExperimentSpec {
+abstract class BuildExperimentSpec {
 
     String displayName
     String projectName
-    GradleInvocationSpec invocation
+    @Nullable
     Integer warmUpCount
+    @Nullable
     Integer invocationCount
     Long sleepAfterWarmUpMillis
     Long sleepAfterTestRoundMillis
     BuildExperimentListener listener
 
-    BuildExperimentSpec(String displayName, String projectName, GradleInvocationSpec invocation, Integer warmUpCount, Integer invocationCount, Long sleepAfterWarmUpMillis, Long sleepAfterTestRoundMillis, BuildExperimentListener listener) {
+    BuildExperimentSpec(String displayName, String projectName, Integer warmUpCount, Integer invocationCount, Long sleepAfterWarmUpMillis, Long sleepAfterTestRoundMillis, BuildExperimentListener listener) {
         this.displayName = displayName
         this.projectName = projectName
-        this.invocation = invocation
         this.warmUpCount = warmUpCount
         this.invocationCount = invocationCount
         this.sleepAfterWarmUpMillis = sleepAfterWarmUpMillis
@@ -43,72 +44,20 @@ class BuildExperimentSpec {
         this.listener = listener
     }
 
-    static Builder builder() {
-        new Builder()
-    }
+    abstract BuildDisplayInfo getDisplayInfo()
 
-    BuildDisplayInfo getDisplayInfo() {
-        new BuildDisplayInfo(projectName, displayName, invocation.tasksToRun, invocation.args)
-    }
+    abstract InvocationSpec getInvocation()
 
-    static class Builder {
-        String displayName
-        String projectName
-        GradleInvocationSpec.Builder invocation = GradleInvocationSpec.builder()
-        Integer warmUpCount
-        Integer invocationCount
-        Long sleepAfterWarmUpMillis = 5000L
-        Long sleepAfterTestRoundMillis = 1000L
-        BuildExperimentListener listener
+    interface Builder {
+        String getDisplayName()
+        String getProjectName()
+        void setProjectName(String projectName)
 
-        Builder displayName(String displayName) {
-            this.displayName = displayName
-            this
-        }
+        BuildExperimentListener getListener()
+        void setListener(BuildExperimentListener listener)
 
-        Builder projectName(String projectName) {
-            this.projectName = projectName
-            this
-        }
+        InvocationSpec.Builder getInvocation()
 
-        Builder warmUpCount(Integer warmUpCount) {
-            this.warmUpCount = warmUpCount
-            this
-        }
-
-        Builder invocationCount(Integer invocationCount) {
-            this.invocationCount = invocationCount
-            this
-        }
-
-        Builder invocation(@DelegatesTo(GradleInvocationSpec.Builder) Closure<?> conf) {
-            invocation.with(conf)
-            this
-        }
-
-        Builder sleepAfterWarmUpMillis(Long sleepAfterWarmUpMillis) {
-            this.sleepAfterWarmUpMillis = sleepAfterWarmUpMillis
-            this
-        }
-
-        Builder sleepAfterTestRoundMillis(Long sleepAfterTestRoundMillis) {
-            this.sleepAfterTestRoundMillis = sleepAfterTestRoundMillis
-            this
-        }
-
-        Builder listener(BuildExperimentListener listener) {
-            this.listener = listener
-            this
-        }
-
-        BuildExperimentSpec build() {
-            assert projectName != null
-            assert displayName != null
-            assert invocation != null
-            assert warmUpCount >= 0
-            assert invocationCount > 0
-
-            new BuildExperimentSpec(displayName, projectName, invocation.buildInfo(displayName, projectName).build(), warmUpCount, invocationCount, sleepAfterWarmUpMillis, sleepAfterTestRoundMillis, listener)
-        }
+        BuildExperimentSpec build()
     }
 }

@@ -18,6 +18,7 @@ package org.gradle.performance
 
 import org.gradle.performance.fixture.CrossBuildPerformanceResults
 import org.gradle.performance.fixture.CrossVersionPerformanceResults
+import org.gradle.performance.fixture.GradleVsMavenBuildPerformanceResults
 import org.gradle.performance.measure.Amount
 import org.gradle.performance.measure.DataAmount
 import org.gradle.performance.measure.Duration
@@ -28,13 +29,17 @@ abstract class ResultSpecification extends Specification {
     CrossVersionPerformanceResults crossVersionResults(Map<String, ?> options = [:]) {
         def results = new CrossVersionPerformanceResults()
         results.testId = "test-id"
+        results.previousTestIds = []
         results.testProject = "test-project"
         results.tasks = ["clean", "build"]
         results.args = []
+        results.gradleOpts = []
+        results.daemon = false
         results.operatingSystem = "some os"
         results.jvm = "java 6"
         results.versionUnderTest = "1.7-rc-1"
         results.vcsBranch = "master"
+        results.vcsCommits = ['123456']
         options.each { key, value -> results."$key" = value }
         return results
     }
@@ -48,7 +53,22 @@ abstract class ResultSpecification extends Specification {
                 operatingSystem: "windows",
                 testTime: 100,
                 vcsBranch: "master",
-                vcsCommit: "abcdef"
+                vcsCommits: ["abcdef"]
+        )
+        options.each { key, value -> results."$key" = value }
+        return results
+    }
+
+    GradleVsMavenBuildPerformanceResults gradleVsMavenBuildResults(Map<String, ?> options = [:]) {
+        def results = new GradleVsMavenBuildPerformanceResults(
+                testId: "test-id",
+                testGroup: "test-group",
+                jvm: "java 7",
+                versionUnderTest: "Gradle 1.0",
+                operatingSystem: "windows",
+                testTime: 100,
+                vcsBranch: "master",
+                vcsCommits: ["abcdef"]
         )
         options.each { key, value -> results."$key" = value }
         return results

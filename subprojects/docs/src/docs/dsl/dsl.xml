@@ -184,18 +184,6 @@
                 <td>org.gradle.api.publish.PublishingExtension</td>
             </tr>
             <tr>
-                <td>org.gradle.api.reporting.Report</td>
-            </tr>
-            <tr>
-                <td>org.gradle.api.reporting.Reporting</td>
-            </tr>
-            <tr>
-                <td>org.gradle.api.reporting.ReportContainer</td>
-            </tr>
-            <tr>
-                <td>org.gradle.api.reporting.ReportingExtension</td>
-            </tr>
-            <tr>
                 <td>org.gradle.api.publish.ivy.IvyPublication</td>
             </tr>
             <tr>
@@ -461,6 +449,38 @@
     </section>
 
     <section>
+        <title>Reporting types</title>
+        <para>Listed below are some of the types which are used when generating reports:</para>
+        <table>
+            <title>Reporting types</title>
+            <tr>
+                <td>org.gradle.api.reporting.CustomizableHtmlReport</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.reporting.SingleFileReport</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.reporting.DirectoryReport</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.plugins.quality.FindBugsXmlReport</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.reporting.Report</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.reporting.Reporting</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.reporting.ReportContainer</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.reporting.ReportingExtension</td>
+            </tr>
+        </table>
+    </section>
+
+    <section>
         <title>Eclipse/IDEA model types</title>
         <para>Used to configure Eclipse or IDEA plugins</para>
         <table>
@@ -714,6 +734,18 @@
             </tr>
             <tr>
                 <td>org.gradle.play.distribution.PlayDistributionContainer</td>
+            </tr>
+            <tr>
+                <td>org.gradle.language.twirl.TwirlSourceSet</td>
+            </tr>
+            <tr>
+                <td>org.gradle.language.routes.RoutesSourceSet</td>
+            </tr>
+            <tr>
+                <td>org.gradle.language.coffeescript.CoffeeScriptSourceSet</td>
+            </tr>
+            <tr>
+                <td>org.gradle.language.javascript.JavaScriptSourceSet</td>
             </tr>
         </table>
     </section>

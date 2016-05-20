@@ -58,8 +58,23 @@ public class IntegrationTestBuildContext {
         return file("integTest.gradleUserHomeDir", "intTestHomeDir").file("worker-1");
     }
 
+    public TestFile getTmpDir() {
+        return file("integTest.tmpDir", "build/tmp");
+    }
+
     public GradleVersion getVersion() {
         return GradleVersion.current();
+    }
+
+    public TestFile getFatToolingApiJar() {
+        TestFile toolingApiLibsDir = file("integTest.toolingApiLibsDir", "subprojects/tooling-api/build/libs");
+        TestFile fatToolingApiJar = new TestFile(toolingApiLibsDir, String.format("gradle-tooling-api-fat-%s.jar", getVersion().getVersion()));
+
+        if (!fatToolingApiJar.exists()) {
+            throw new IllegalStateException(String.format("The fat Tooling API JAR file does not exist: %s", fatToolingApiJar.getAbsolutePath()));
+        }
+
+        return fatToolingApiJar;
     }
 
     public GradleDistribution distribution(String version) {
@@ -73,6 +88,7 @@ public class IntegrationTestBuildContext {
         return new ReleasedGradleDistribution(version, previousVersionDir.file(version));
     }
 
+
     private static TestFile file(String propertyName, String defaultFile) {
         String path = System.getProperty(propertyName, defaultFile);
         if (path == null) {
@@ -81,6 +97,4 @@ public class IntegrationTestBuildContext {
         }
         return new TestFile(new File(path));
     }
-
-
 }

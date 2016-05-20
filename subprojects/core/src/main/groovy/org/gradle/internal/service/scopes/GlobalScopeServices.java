@@ -22,19 +22,31 @@ import org.gradle.api.internal.*;
 import org.gradle.api.internal.cache.StringInterner;
 import org.gradle.api.internal.changedetection.state.CachingFileSnapshotter;
 import org.gradle.api.internal.changedetection.state.InMemoryTaskArtifactCache;
-import org.gradle.api.internal.classpath.*;
+import org.gradle.api.internal.classpath.DefaultModuleRegistry;
+import org.gradle.api.internal.classpath.DefaultPluginModuleRegistry;
+import org.gradle.api.internal.classpath.ModuleRegistry;
+import org.gradle.api.internal.classpath.PluginModuleRegistry;
 import org.gradle.api.internal.file.*;
+import org.gradle.api.internal.file.collections.DefaultDirectoryFileTreeFactory;
+import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
 import org.gradle.api.internal.hash.DefaultHasher;
-import org.gradle.api.internal.initialization.loadercache.*;
-import org.gradle.api.logging.Logger;
-import org.gradle.api.logging.Logging;
+import org.gradle.api.internal.initialization.loadercache.ClassLoaderCache;
+import org.gradle.api.internal.initialization.loadercache.ClassPathSnapshotter;
+import org.gradle.api.internal.initialization.loadercache.DefaultClassLoaderCache;
+import org.gradle.api.internal.initialization.loadercache.HashClassPathSnapshotter;
+import org.gradle.api.tasks.util.PatternSet;
+import org.gradle.api.tasks.util.internal.CachingPatternSpecFactory;
+import org.gradle.api.tasks.util.internal.PatternSets;
+import org.gradle.api.tasks.util.internal.PatternSpecFactory;
 import org.gradle.cache.internal.*;
 import org.gradle.cache.internal.locklistener.DefaultFileLockContentionHandler;
 import org.gradle.cache.internal.locklistener.FileLockContentionHandler;
 import org.gradle.cli.CommandLineConverter;
 import org.gradle.configuration.DefaultImportsReader;
 import org.gradle.configuration.ImportsReader;
+import org.gradle.groovy.scripts.internal.CrossBuildInMemoryCachingScriptClassCache;
 import org.gradle.initialization.*;
+import org.gradle.internal.Factory;
 import org.gradle.internal.classloader.ClassLoaderFactory;
 import org.gradle.internal.classloader.DefaultClassLoaderFactory;
 import org.gradle.internal.classpath.ClassPath;
@@ -46,6 +58,8 @@ import org.gradle.internal.event.DefaultListenerManager;
 import org.gradle.internal.event.ListenerManager;
 import org.gradle.internal.filewatch.DefaultFileWatcherFactory;
 import org.gradle.internal.filewatch.FileWatcherFactory;
+import org.gradle.internal.installation.CurrentGradleInstallation;
+import org.gradle.internal.installation.GradleFatJar;
 import org.gradle.internal.nativeintegration.ProcessEnvironment;
 import org.gradle.internal.nativeintegration.filesystem.FileSystem;
 import org.gradle.internal.reflect.DirectInstantiator;
@@ -60,12 +74,12 @@ import org.gradle.model.internal.inspect.MethodModelRuleExtractor;
 import org.gradle.model.internal.inspect.MethodModelRuleExtractors;
 import org.gradle.model.internal.inspect.ModelRuleExtractor;
 import org.gradle.model.internal.inspect.ModelRuleSourceDetector;
+import org.gradle.model.internal.manage.binding.DefaultStructBindingsStore;
+import org.gradle.model.internal.manage.binding.StructBindingsStore;
 import org.gradle.model.internal.manage.instance.ManagedProxyFactory;
 import org.gradle.model.internal.manage.schema.ModelSchemaStore;
 import org.gradle.model.internal.manage.schema.extract.*;
-import org.gradle.model.internal.persist.AlwaysNewModelRegistryStore;
-import org.gradle.model.internal.persist.ModelRegistryStore;
-import org.gradle.model.internal.persist.ReusingModelRegistryStore;
+import org.gradle.process.internal.DefaultExecActionFactory;
 
 import java.util.List;
 
@@ -73,8 +87,6 @@ import java.util.List;
  * Defines the global services shared by all services in a given process. This includes the Gradle CLI, daemon and tooling API provider.
  */
 public class GlobalScopeServices {
-
-    private static final Logger LOGGER = Logging.getLogger(GlobalScopeServices.class);
     private final ClassPath additionalModuleClassPath;
 
     private GradleBuildEnvironment environment;
@@ -123,12 +135,12 @@ public class GlobalScopeServices {
                 pluginModuleRegistry));
     }
 
-    ModuleRegistry createModuleRegistry() {
-        return new DefaultModuleRegistry(additionalModuleClassPath);
+    ModuleRegistry createModuleRegistry(CurrentGradleInstallation currentGradleInstallation) {
+        return new DefaultModuleRegistry(additionalModuleClassPath, currentGradleInstallation.getInstallation());
     }
 
-    GradleDistributionLocator createGradleDistributionLocator() {
-        return new DefaultGradleDistributionLocator();
+    CurrentGradleInstallation createCurrentGradleInstallation() {
+        return CurrentGradleInstallation.locate();
     }
 
     DocumentationRegistry createDocumentationRegistry() {
@@ -143,8 +155,16 @@ public class GlobalScopeServices {
         return new DefaultCacheFactory(fileLockManager);
     }
 
-    DefaultClassLoaderRegistry createClassLoaderRegistry(ClassPathRegistry classPathRegistry, ClassLoaderFactory classLoaderFactory) {
+    ClassLoaderRegistry createClassLoaderRegistry(ClassPathRegistry classPathRegistry, ClassLoaderFactory classLoaderFactory) {
+        if (GradleFatJar.containsMarkerFile(getClass())) {
+            return new FlatClassLoaderRegistry(getClass().getClassLoader());
+        }
+
         return new DefaultClassLoaderRegistry(classPathRegistry, classLoaderFactory);
+    }
+
+    JdkToolsInitializer createJdkToolsInitializer(ClassLoaderFactory classLoaderFactory) {
+        return new DefaultJdkToolsInitializer(classLoaderFactory);
     }
 
     ListenerManager createListenerManager() {
@@ -155,8 +175,8 @@ public class GlobalScopeServices {
         return new DefaultClassLoaderFactory();
     }
 
-    MessagingServices createMessagingServices(ClassLoaderRegistry classLoaderRegistry) {
-        return new MessagingServices(getClass().getClassLoader());
+    MessagingServices createMessagingServices() {
+        return new MessagingServices();
     }
 
     MessagingServer createMessagingServer(MessagingServices messagingServices) {
@@ -193,28 +213,42 @@ public class GlobalScopeServices {
         );
     }
 
-    FileResolver createFileResolver(FileSystem fileSystem) {
-        return new IdentityFileResolver(fileSystem);
+    FileResolver createFileResolver(FileLookup lookup) {
+        return lookup.getFileResolver();
     }
 
-    FileLookup createFileLookup(FileSystem fileSystem) {
-        return new DefaultFileLookup(fileSystem);
+    FileLookup createFileLookup(FileSystem fileSystem, Factory<PatternSet> patternSetFactory) {
+        return new DefaultFileLookup(fileSystem, patternSetFactory);
     }
 
-    ModelRuleExtractor createModelRuleInspector(ServiceRegistry services, ModelSchemaStore modelSchemaStore) {
+    DirectoryFileTreeFactory createDirectoryFileTreeFactory() {
+        return new DefaultDirectoryFileTreeFactory();
+    }
+
+    FileCollectionFactory createFileCollectionFactory() {
+        return new DefaultFileCollectionFactory();
+    }
+
+    DefaultExecActionFactory createExecActionFactory(FileResolver fileResolver) {
+        return new DefaultExecActionFactory(fileResolver);
+    }
+
+    ModelRuleExtractor createModelRuleInspector(ServiceRegistry services, ModelSchemaStore modelSchemaStore, StructBindingsStore structBindingsStore, ManagedProxyFactory managedProxyFactory) {
         List<MethodModelRuleExtractor> extractors = services.getAll(MethodModelRuleExtractor.class);
         List<MethodModelRuleExtractor> coreExtractors = MethodModelRuleExtractors.coreExtractors(modelSchemaStore);
-        return new ModelRuleExtractor(Iterables.concat(coreExtractors, extractors));
+        return new ModelRuleExtractor(Iterables.concat(coreExtractors, extractors), managedProxyFactory, modelSchemaStore, structBindingsStore);
     }
 
-    ClassPathSnapshotter createClassPathSnapshotter(GradleBuildEnvironment environment, StringInterner stringInterner) {
-        if (environment.isLongLivingProcess()) {
-            final MapBackedInMemoryStore inMemoryStore = new MapBackedInMemoryStore();
-            CachingFileSnapshotter fileSnapshotter = new CachingFileSnapshotter(new DefaultHasher(), inMemoryStore, stringInterner);
-            return new HashClassPathSnapshotter(fileSnapshotter, inMemoryStore);
-        } else {
-            return new FileClassPathSnapshotter();
-        }
+    ClassPathSnapshotter createClassPathSnapshotter(GradleBuildEnvironment environment, final CachingFileSnapshotter fileSnapshotter) {
+        return new HashClassPathSnapshotter(fileSnapshotter);
+    }
+
+    MapBackedInMemoryStore createInMemoryStore() {
+        return new MapBackedInMemoryStore();
+    }
+
+    CachingFileSnapshotter createCachingFileSnapshotter(StringInterner stringInterner, MapBackedInMemoryStore inMemoryStore) {
+        return new CachingFileSnapshotter(new DefaultHasher(), inMemoryStore, stringInterner);
     }
 
     ClassLoaderCache createClassLoaderCache(ClassPathSnapshotter classPathSnapshotter) {
@@ -231,25 +265,19 @@ public class GlobalScopeServices {
     }
 
     protected ModelSchemaExtractor createModelSchemaExtractor(ModelSchemaAspectExtractor aspectExtractor, ServiceRegistry serviceRegistry) {
-        List<ModelSchemaExtractionStrategy> strategies = serviceRegistry.getAll(ModelSchemaExtractionStrategy.class);
-        return new ModelSchemaExtractor(strategies, aspectExtractor);
+        return DefaultModelSchemaExtractor.withDefaultStrategies(serviceRegistry.getAll(ModelSchemaExtractionStrategy.class), aspectExtractor);
     }
 
     protected ModelSchemaStore createModelSchemaStore(ModelSchemaExtractor modelSchemaExtractor) {
         return new DefaultModelSchemaStore(modelSchemaExtractor);
     }
 
-    protected ModelRuleSourceDetector createModelRuleSourceDetector() {
-        return new ModelRuleSourceDetector();
+    protected StructBindingsStore createStructBindingsStore(ModelSchemaStore schemaStore) {
+        return new DefaultStructBindingsStore(schemaStore);
     }
 
-    protected ModelRegistryStore createModelRegistryStore(GradleBuildEnvironment buildEnvironment, ModelRuleExtractor ruleExtractor) {
-        ModelRegistryStore registryStore = new AlwaysNewModelRegistryStore(ruleExtractor);
-        if (buildEnvironment.isLongLivingProcess() && Boolean.getBoolean(ReusingModelRegistryStore.TOGGLE)) {
-            LOGGER.warn(ReusingModelRegistryStore.BANNER);
-            registryStore = new ReusingModelRegistryStore(registryStore);
-        }
-        return registryStore;
+    protected ModelRuleSourceDetector createModelRuleSourceDetector() {
+        return new ModelRuleSourceDetector();
     }
 
     protected ImportsReader createImportsReader() {
@@ -262,5 +290,17 @@ public class GlobalScopeServices {
 
     StringInterner createStringInterner() {
         return new StringInterner();
+    }
+
+    PatternSpecFactory createPatternSpecFactory(GradleBuildEnvironment environment) {
+        return new CachingPatternSpecFactory();
+    }
+
+    protected Factory<PatternSet> createPatternSetFactory(final PatternSpecFactory patternSpecFactory) {
+        return PatternSets.getPatternSetFactory(patternSpecFactory);
+    }
+
+    protected CrossBuildInMemoryCachingScriptClassCache createCachingScriptCompiler(CachingFileSnapshotter snapshotter) {
+        return new CrossBuildInMemoryCachingScriptClassCache(snapshotter);
     }
 }

@@ -22,7 +22,7 @@ import org.gradle.api.Task;
 import org.gradle.plugins.ide.eclipse.EclipsePlugin;
 import org.gradle.plugins.ide.eclipse.model.*;
 import org.gradle.plugins.ide.internal.tooling.eclipse.*;
-import org.gradle.plugins.ide.internal.tooling.java.DefaultJavaSourceSettings;
+import org.gradle.plugins.ide.internal.tooling.java.DefaultInstalledJdk;
 import org.gradle.tooling.internal.gradle.DefaultGradleProject;
 import org.gradle.tooling.provider.model.ToolingModelBuilder;
 import org.gradle.util.GUtil;
@@ -69,6 +69,27 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
             p.getPluginManager().apply(EclipsePlugin.class);
         }
         root.getPlugins().getPlugin(EclipsePlugin.class).makeSureProjectNamesAreUnique();
+    }
+
+    private DefaultEclipseProject buildHierarchy(Project project) {
+        List<DefaultEclipseProject> children = new ArrayList<DefaultEclipseProject>();
+        for (Project child : project.getChildProjects().values()) {
+            children.add(buildHierarchy(child));
+        }
+
+        EclipseModel eclipseModel = project.getExtensions().getByType(EclipseModel.class);
+        org.gradle.plugins.ide.eclipse.model.EclipseProject internalProject = eclipseModel.getProject();
+        String name = internalProject.getName();
+        String description = GUtil.elvis(internalProject.getComment(), null);
+        DefaultEclipseProject eclipseProject =
+            new DefaultEclipseProject(name, project.getPath(), description, project.getProjectDir(), children)
+                .setGradleProject(rootGradleProject.findByPath(project.getPath()));
+
+        for (DefaultEclipseProject child : children) {
+            child.setParent(eclipseProject);
+        }
+        addProject(project, eclipseProject);
+        return eclipseProject;
     }
 
     private void addProject(Project project, DefaultEclipseProject eclipseProject) {
@@ -137,39 +158,17 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
             buildCommands.add(new DefaultEclipseBuildCommand(b.getName(), b.getArguments()));
         }
         eclipseProject.setBuildCommands(buildCommands);
-
         EclipseJdt jdt = eclipseModel.getJdt();
         if (jdt != null) {
-            // the default value for eclipse.jdt.sourceCompatibility is project.sourceCompatibility
-            // hence we have to read the value only from there
-            org.gradle.api.JavaVersion sourceCompatibility = jdt.getSourceCompatibility();
-            DefaultJavaSourceSettings sourceSettings = new DefaultJavaSourceSettings(sourceCompatibility);
-            eclipseProject.setJavaSourceSettings(sourceSettings);
+            eclipseProject.setJavaSourceSettings(new DefaultEclipseJavaSourceSettings()
+                .setSourceLanguageLevel(jdt.getSourceCompatibility())
+                .setTargetBytecodeVersion(jdt.getTargetCompatibility())
+                .setJdk(DefaultInstalledJdk.current())
+            );
         }
 
         for (Project childProject : project.getChildProjects().values()) {
             populate(childProject);
         }
-    }
-
-    private DefaultEclipseProject buildHierarchy(Project project) {
-        List<DefaultEclipseProject> children = new ArrayList<DefaultEclipseProject>();
-        for (Project child : project.getChildProjects().values()) {
-            children.add(buildHierarchy(child));
-        }
-
-        EclipseModel eclipseModel = project.getExtensions().getByType(EclipseModel.class);
-        org.gradle.plugins.ide.eclipse.model.EclipseProject internalProject = eclipseModel.getProject();
-        String name = internalProject.getName();
-        String description = GUtil.elvis(internalProject.getComment(), null);
-        DefaultEclipseProject eclipseProject =
-            new DefaultEclipseProject(name, project.getPath(), description, project.getProjectDir(), children)
-                .setGradleProject(rootGradleProject.findByPath(project.getPath()));
-
-        for (DefaultEclipseProject child : children) {
-            child.setParent(eclipseProject);
-        }
-        addProject(project, eclipseProject);
-        return eclipseProject;
     }
 }

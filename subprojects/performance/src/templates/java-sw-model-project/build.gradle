@@ -6,16 +6,13 @@ plugins {
 }
 
 repositories {
-    jcenter()
-}
-
 <% if (repository) { %>
-repositories {
     maven {
         url rootProject.file("${repository.rootDir.name}").toURI().toURL()
     }
-}
 <% } %>
+    jcenter()
+}
 
 configurations {
     compile
@@ -104,7 +101,7 @@ class ClasspathWiring extends RuleSource {
 <% if (binding.hasVariable('testComponent') && testComponent) { %>
 class TestTaskWiring extends RuleSource {
     @Mutate
-    void createTestTask(ModelMap<Task> tasks, ModelMap<BinarySpec> binaries, ModelMap<JvmLibrarySpec> libraries) {
+    void createTestTask(ModelMap<Task> tasks, @Path("binaries") ModelMap<BinarySpec> binaries, @Path("components") ModelMap<JvmLibrarySpec> libraries) {
         def testJarClassesDir = binaries.get('testJar').classesDir
         def testSourceDirs = libraries.get('test').sources.collect {
             it.source.srcDirs

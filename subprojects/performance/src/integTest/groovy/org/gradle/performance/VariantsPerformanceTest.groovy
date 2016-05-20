@@ -19,10 +19,11 @@ package org.gradle.performance
 
 import org.gradle.performance.categories.BasicPerformanceTest
 import org.gradle.performance.fixture.BuildExperimentSpec
+import org.junit.Ignore
 import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
-@Category(BasicPerformanceTest)
+@Category(BasicPerformanceTest) @Ignore
 class VariantsPerformanceTest extends AbstractCrossBuildPerformanceTest {
 
     @Override
@@ -41,22 +42,9 @@ class VariantsPerformanceTest extends AbstractCrossBuildPerformanceTest {
                 tasksToRun(task).useDaemon()
             }
         }
-        /*
-        TODO: enable after fixing model reuse
         runner.buildSpec {
-            projectName("${size}VariantsNewModel").displayName("new model (reuse)").invocation {
-                tasksToRun(task).useDaemon().enableModelReuse()
-            }
-        }
-        runner.buildSpec {
-            projectName("${size}VariantsNewModel").displayName("new model (reuse + tooling api)").invocation {
-                tasksToRun(task).useToolingApi().enableModelReuse()
-            }
-        }
-        */
-        runner.buildSpec {
-            projectName("${size}VariantsNewModel").displayName("new model (no client logging)").invocation {
-                tasksToRun(task).useDaemon().disableDaemonLogging()
+            projectName("${size}VariantsNewModel").displayName("new model (tooling api)").invocation {
+                tasksToRun(task).useToolingApi()
             }
         }
         runner.baseline {
@@ -67,11 +55,6 @@ class VariantsPerformanceTest extends AbstractCrossBuildPerformanceTest {
         runner.baseline {
             projectName("${size}VariantsOldModel").displayName("old model (tooling api)").invocation {
                 tasksToRun(task).useToolingApi()
-            }
-        }
-        runner.baseline {
-            projectName("${size}VariantsOldModel").displayName("old model (no client logging)").invocation {
-                tasksToRun(task).useDaemon().disableDaemonLogging()
             }
         }
 
@@ -100,22 +83,9 @@ class VariantsPerformanceTest extends AbstractCrossBuildPerformanceTest {
                 tasksToRun(*tasks).useDaemon()
             }
         }
-        /*
-        TODO: enable after fixing model reuse
         runner.buildSpec {
-            projectName("variantsNewModelMultiproject").displayName("new model (reuse)").invocation {
-                tasksToRun(*tasks).useDaemon().enableModelReuse()
-            }
-        }
-        runner.buildSpec {
-            projectName("variantsNewModelMultiproject").displayName("new model (reuse + tooling api)").invocation {
-                tasksToRun(*tasks).useToolingApi().enableModelReuse()
-            }
-        }
-        */
-        runner.buildSpec {
-            projectName("variantsNewModelMultiproject").displayName("new model (no client logging)").invocation {
-                tasksToRun(*tasks).useDaemon().disableDaemonLogging()
+            projectName("variantsNewModelMultiproject").displayName("new model (tooling api)").invocation {
+                tasksToRun(*tasks).useToolingApi()
             }
         }
         runner.baseline {
@@ -126,11 +96,6 @@ class VariantsPerformanceTest extends AbstractCrossBuildPerformanceTest {
         runner.baseline {
             projectName("variantsOldModelMultiproject").displayName("old model (tooling api)").invocation {
                 tasksToRun(*tasks).useToolingApi()
-            }
-        }
-        runner.baseline {
-            projectName("variantsOldModelMultiproject").displayName("old model (no client logging)").invocation {
-                tasksToRun(*tasks).useDaemon().disableDaemonLogging()
             }
         }
 

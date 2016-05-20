@@ -29,16 +29,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 
-public class AntlrExecuter {
+public class AntlrExecuter implements AntlrWorker {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AntlrExecuter.class);
 
-    AntlrResult runAntlr(AntlrSpec spec) throws IOException, InterruptedException {
+    @Override
+    public AntlrResult runAntlr(AntlrSpec spec) {
         AntlrTool antlrTool = new Antlr4Tool();
         if (antlrTool.available()) {
             LOGGER.info("Processing with ANTLR 4");
@@ -60,13 +60,10 @@ public class AntlrExecuter {
     }
 
     private static class Antlr3Tool extends AntlrTool {
-        public Antlr3Tool() {
-        }
-
         @Override
         int invoke(List<String> arguments, File inputDirectory) throws ClassNotFoundException {
             final Object backedObject = loadTool("org.antlr.Tool", null);
-            String[] argArray = arguments.toArray(new String[arguments.size()]);
+            String[] argArray = arguments.toArray(new String[0]);
             if (inputDirectory != null) {
                 JavaReflectionUtil.method(backedObject, Void.class, "setInputDirectory", String.class).invoke(backedObject, inputDirectory.getAbsolutePath());
                 JavaReflectionUtil.method(backedObject, Void.class, "setForceRelativeOutput", boolean.class).invoke(backedObject, true);
@@ -116,7 +113,7 @@ public class AntlrExecuter {
                 return doProcess(spec);
             } catch (ClassNotFoundException e) {
                 //this shouldn't happen if you call check availability with #available first
-                throw new GradleException("Canot process antlr sources", e);
+                throw new GradleException("Cannot process antlr sources", e);
             }
         }
 
@@ -154,15 +151,12 @@ public class AntlrExecuter {
         public abstract boolean available();
 
         protected static String[] toArray(List<String> strings) {
-            return strings.toArray(new String[strings.size()]);
+            return strings.toArray(new String[0]);
         }
 
     }
 
     static class Antlr4Tool extends AntlrTool {
-        public Antlr4Tool() {
-        }
-
         @Override
         int invoke(List<String> arguments, File inputDirectory) throws ClassNotFoundException {
             final Object backedObject = loadTool("org.antlr.v4.Tool", toArray(arguments));
@@ -185,9 +179,6 @@ public class AntlrExecuter {
     }
 
     private static class Antlr2Tool extends AntlrTool {
-        public Antlr2Tool() {
-        }
-
         public AntlrResult doProcess(AntlrSpec spec) throws ClassNotFoundException {
             XRef xref = new MetadataExtracter().extractMetadata(spec.getGrammarFiles());
             List<GenerationPlan> generationPlans = new GenerationPlanBuilder(spec.getOutputDirectory()).buildGenerationPlans(xref);
@@ -196,7 +187,14 @@ public class AntlrExecuter {
                 generationPlanArguments.add("-o");
                 generationPlanArguments.add(generationPlan.getGenerationDirectory().getAbsolutePath());
                 generationPlanArguments.add(generationPlan.getSource().getAbsolutePath());
-                invoke(generationPlanArguments, null);
+                try {
+                    invoke(generationPlanArguments, null);
+                } catch (RuntimeException e) {
+                    if (e.getMessage().equals("ANTLR Panic: Exiting due to errors.")) {
+                        return new AntlrResult(-1, e);
+                    }
+                    throw e;
+                }
 
             }
             return new AntlrResult(0);  // ANTLR 2 always returning 0

@@ -25,10 +25,14 @@ import org.gradle.test.fixtures.ConcurrentTestUtil
 
 import java.util.concurrent.TimeUnit
 
+import static org.gradle.util.TestPrecondition.PULL_REQUEST_BUILD
+
 abstract class AbstractContinuousIntegrationTest extends AbstractIntegrationSpec {
-    private static final int WAIT_FOR_WATCHING_TIMEOUT_SECONDS = 30
-    private static final int WAIT_FOR_SHUTDOWN_TIMEOUT_SECONDS = 10
+    private static final int WAIT_FOR_WATCHING_TIMEOUT_SECONDS = PULL_REQUEST_BUILD.fulfilled ? 60 : 30
+    private static final int WAIT_FOR_SHUTDOWN_TIMEOUT_SECONDS = 20
     private static final boolean OS_IS_WINDOWS = OperatingSystem.current().isWindows()
+    private static final String CHANGE_DETECTED_OUTPUT = "Change detected, executing build..."
+    private static final String WAITING_FOR_CHANGES_OUTPUT = "Waiting for changes to input files of tasks..."
 
     GradleHandle gradle
 
@@ -39,6 +43,7 @@ abstract class AbstractContinuousIntegrationTest extends AbstractIntegrationSpec
     int shutdownTimeout = WAIT_FOR_SHUTDOWN_TIMEOUT_SECONDS
     boolean killToStop
     boolean ignoreShutdownTimeoutException
+    List<ExecutionResult> results = []
 
     public void turnOnDebug() {
         executer.withDebug(true)
@@ -64,13 +69,17 @@ abstract class AbstractContinuousIntegrationTest extends AbstractIntegrationSpec
                 def startAt = System.nanoTime()
                 gradle.buildFinished {
                     long sinceStart = (System.nanoTime() - startAt) / 1000000L
-                    if (sinceStart > 0 && sinceStart < 2000) {
-                      sleep(2000 - sinceStart)
+                    if (sinceStart > 0 && sinceStart < $minimumBuildTimeMillis) {
+                      sleep($minimumBuildTimeMillis - sinceStart)
                     }
                 }
             """
             withArgument("-I").withArgument(initScript.absolutePath)
         }
+    }
+
+    protected int getMinimumBuildTimeMillis() {
+        2000
     }
 
     @Override
@@ -118,7 +127,7 @@ ${result.error}
         gradle = executer.withStdinPipe()
             .withTasks(tasks)
             .withForceInteractive(true)
-            .withArgument("--stacktrace")
+            .withArgument("--full-stacktrace")
             .withArgument("--continuous")
             .start()
     }
@@ -129,20 +138,34 @@ ${result.error}
 
     private void waitForBuild() {
         def lastOutput = buildOutputSoFar()
+        def lastLength = lastOutput.size()
         def lastActivity = monotonicClockMillis()
-        boolean endOfBuildReached = false
+        int endOfBuildReached = 0
+        int startIndex = 0
 
         while (gradle.isRunning() && monotonicClockMillis() - lastActivity < (buildTimeout * 1000)) {
             sleep 100
-            def lastLength = lastOutput.size()
             lastOutput = buildOutputSoFar()
-
-            if (lastOutput.contains("Waiting for changes to input files of tasks...")) {
-                endOfBuildReached = true
-                sleep 100
-                break
-            } else if (lastOutput.size() > lastLength) {
+            if (lastOutput.size() != lastLength) {
                 lastActivity = monotonicClockMillis()
+                lastLength = lastOutput.size()
+                // wait for quiet period in output before detecting build ending
+                continue
+            }
+
+            int changeDetectedIndex = lastOutput.lastIndexOf(CHANGE_DETECTED_OUTPUT)
+            if (changeDetectedIndex > startIndex) {
+                startIndex = changeDetectedIndex + CHANGE_DETECTED_OUTPUT.length()
+                endOfBuildReached = 0
+            }
+            if (lastOutput.length() > startIndex && lastOutput.indexOf(WAITING_FOR_CHANGES_OUTPUT, startIndex) > -1) {
+                if (endOfBuildReached++ > 1) {
+                    // must reach end of build twice before breaking out of loop
+                    break
+                } else {
+                    // wait extra period
+                    sleep 100
+                }
             }
         }
         if (gradle.isRunning() && !endOfBuildReached) {
@@ -156,8 +179,51 @@ $lastOutput
         standardOutputBuildMarker = gradle.standardOutput.length()
         errorOutputBuildMarker = gradle.errorOutput.length()
 
+        parseResults(out, err)
+        result = results.last()
+    }
+
+    private OutputScrapingExecutionResult createExecutionResult(String out, String err) {
         //noinspection GroovyConditionalWithIdenticalBranches
-        result = out.contains("BUILD SUCCESSFUL") ? new OutputScrapingExecutionResult(out, err) : new OutputScrapingExecutionFailure(out, err)
+        out.contains("BUILD SUCCESSFUL") ? new OutputScrapingExecutionResult(out, err) : new OutputScrapingExecutionFailure(out, err)
+    }
+
+    void parseResults(String out, String err) {
+        if(!out) {
+            results << createExecutionResult(out, err)
+            return
+        }
+        int startPos = 0
+        int endPos = findEndIndexOfCurrentBuild(out, startPos)
+        while (startPos < out.length()) {
+            if (endPos == -1) {
+                endPos = out.length()
+            }
+            results << createExecutionResult(out.substring(startPos, endPos), err)
+            startPos = endPos
+            endPos = findEndIndexOfCurrentBuild(out, startPos)
+        }
+    }
+
+    private int findEndIndexOfCurrentBuild(String out, int startIndex) {
+        int waitingForChangesIndex = out.indexOf(WAITING_FOR_CHANGES_OUTPUT, startIndex)
+        if (waitingForChangesIndex == -1) {
+            return -1
+        }
+        def waitingForChangesEndIndex = waitingForChangesIndex + WAITING_FOR_CHANGES_OUTPUT.length()
+        def newLine = "\n"
+        int endOfLineIndex = out.indexOf(newLine, waitingForChangesEndIndex)
+        if (endOfLineIndex == -1) {
+            return waitingForChangesEndIndex
+        }
+        endOfLineIndex = endOfLineIndex + newLine.length()
+        // if no new build was started, assume that this was the last build and include all output in it
+        int nextBuildStart = out.indexOf(CHANGE_DETECTED_OUTPUT, endOfLineIndex)
+        if (nextBuildStart == -1) {
+            return out.length()
+        } else {
+            return endOfLineIndex
+        }
     }
 
     private long monotonicClockMillis() {

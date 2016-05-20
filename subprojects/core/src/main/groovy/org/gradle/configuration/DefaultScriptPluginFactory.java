@@ -20,12 +20,16 @@ import org.gradle.api.initialization.dsl.ScriptHandler;
 import org.gradle.api.internal.DocumentationRegistry;
 import org.gradle.api.internal.GradleInternal;
 import org.gradle.api.internal.SettingsInternal;
+import org.gradle.api.internal.cache.StringInterner;
 import org.gradle.api.internal.file.FileLookup;
+import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
 import org.gradle.api.internal.initialization.ClassLoaderScope;
 import org.gradle.api.internal.initialization.ScriptHandlerFactory;
 import org.gradle.api.internal.initialization.ScriptHandlerInternal;
 import org.gradle.api.internal.plugins.PluginManagerInternal;
 import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.tasks.util.PatternSet;
+import org.gradle.api.tasks.util.internal.PatternSets;
 import org.gradle.groovy.scripts.*;
 import org.gradle.groovy.scripts.internal.*;
 import org.gradle.internal.Actions;
@@ -40,6 +44,7 @@ import org.gradle.plugin.use.internal.PluginRequests;
 import org.gradle.plugin.use.internal.PluginRequestsSerializer;
 
 public class DefaultScriptPluginFactory implements ScriptPluginFactory {
+    private final static StringInterner INTERNER = new StringInterner();
 
     private final ScriptCompilerFactory scriptCompilerFactory;
     private final Factory<LoggingManagerInternal> loggingManagerFactory;
@@ -47,6 +52,7 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
     private final ScriptHandlerFactory scriptHandlerFactory;
     private final PluginRequestApplicator pluginRequestApplicator;
     private final FileLookup fileLookup;
+    private final DirectoryFileTreeFactory directoryFileTreeFactory;
     private final DocumentationRegistry documentationRegistry;
     private final ModelRuleSourceDetector modelRuleSourceDetector;
     private final BuildScriptDataSerializer buildScriptDataSerializer = new BuildScriptDataSerializer();
@@ -58,6 +64,7 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
                                       ScriptHandlerFactory scriptHandlerFactory,
                                       PluginRequestApplicator pluginRequestApplicator,
                                       FileLookup fileLookup,
+                                      DirectoryFileTreeFactory directoryFileTreeFactory,
                                       DocumentationRegistry documentationRegistry,
                                       ModelRuleSourceDetector modelRuleSourceDetector) {
         this.scriptCompilerFactory = scriptCompilerFactory;
@@ -66,6 +73,7 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
         this.scriptHandlerFactory = scriptHandlerFactory;
         this.pluginRequestApplicator = pluginRequestApplicator;
         this.fileLookup = fileLookup;
+        this.directoryFileTreeFactory = directoryFileTreeFactory;
         this.documentationRegistry = documentationRegistry;
         this.modelRuleSourceDetector = modelRuleSourceDetector;
     }
@@ -94,7 +102,11 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
         }
 
         public void apply(final Object target) {
-            final DefaultServiceRegistry services = new DefaultServiceRegistry();
+            final DefaultServiceRegistry services = new DefaultServiceRegistry() {
+                Factory<PatternSet> createPatternSetFactory() {
+                    return PatternSets.getNonCachingPatternSetFactory();
+                }
+            };
             services.add(ScriptPluginFactory.class, DefaultScriptPluginFactory.this);
             services.add(ScriptHandlerFactory.class, scriptHandlerFactory);
             services.add(ClassLoaderScope.class, targetScope);
@@ -102,6 +114,7 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
             services.add(Instantiator.class, instantiator);
             services.add(ScriptHandler.class, scriptHandler);
             services.add(FileLookup.class, fileLookup);
+            services.add(DirectoryFileTreeFactory.class, directoryFileTreeFactory);
             services.add(ModelRuleSourceDetector.class, modelRuleSourceDetector);
 
             final ScriptTarget scriptTarget = wrap(target);
@@ -116,7 +129,8 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
             String classpathClosureName = scriptTarget.getClasspathBlockName();
             InitialPassStatementTransformer initialPassStatementTransformer = new InitialPassStatementTransformer(classpathClosureName, onPluginBlockError, scriptSource, documentationRegistry);
             SubsetScriptTransformer initialTransformer = new SubsetScriptTransformer(initialPassStatementTransformer);
-            CompileOperation<PluginRequests> initialOperation = new FactoryBackedCompileOperation<PluginRequests>("cp_" + scriptTarget.getId(), initialTransformer, initialPassStatementTransformer, pluginRequestsSerializer);
+            String id = INTERNER.intern("cp_" + scriptTarget.getId());
+            CompileOperation<PluginRequests> initialOperation = new FactoryBackedCompileOperation<PluginRequests>(id, initialTransformer, initialPassStatementTransformer, pluginRequestsSerializer);
 
             ScriptRunner<? extends BasicScript, PluginRequests> initialRunner = compiler.compile(scriptType, initialOperation, baseScope.getExportClassLoader(), Actions.doNothing());
             initialRunner.run(target, services);
@@ -126,7 +140,6 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
             pluginRequestApplicator.applyPlugins(pluginRequests, scriptHandler, pluginManager, targetScope);
 
             // Pass 2, compile everything except buildscript {} and plugin requests, then run
-
             BuildScriptTransformer buildScriptTransformer = new BuildScriptTransformer(classpathClosureName, scriptSource);
             String operationId = scriptTarget.getId();
             CompileOperation<BuildScriptData> operation = new FactoryBackedCompileOperation<BuildScriptData>(operationId, buildScriptTransformer, buildScriptTransformer, buildScriptDataSerializer);
@@ -165,5 +178,7 @@ public class DefaultScriptPluginFactory implements ScriptPluginFactory {
                 return new DefaultScriptTarget(target);
             }
         }
+
     }
+
 }

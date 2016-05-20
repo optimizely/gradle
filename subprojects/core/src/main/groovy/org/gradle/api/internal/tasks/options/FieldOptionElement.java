@@ -17,7 +17,7 @@
 package org.gradle.api.internal.tasks.options;
 
 import org.apache.commons.lang.StringUtils;
-import org.gradle.internal.typeconversion.ValueAwareNotationParser;
+import org.gradle.internal.typeconversion.NotationParser;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -25,16 +25,16 @@ import java.util.List;
 
 public class FieldOptionElement extends AbstractOptionElement {
 
-    public static FieldOptionElement create(Option option, Field field, OptionNotationParserFactory optionNotationParserFactory){
+    public static FieldOptionElement create(Option option, Field field, OptionValueNotationParserFactory optionValueNotationParserFactory){
         String optionName = calOptionName(option, field);
         Class<?> optionType = calculateOptionType(field.getType());
-        ValueAwareNotationParser<?> notationParser = createNotationParserOrFail(optionNotationParserFactory, optionName, optionType, field.getDeclaringClass());
+        NotationParser<CharSequence, ?> notationParser = createNotationParserOrFail(optionValueNotationParserFactory, optionName, optionType, field.getDeclaringClass());
         return new FieldOptionElement(field, optionName, option, optionType, notationParser);
     }
 
     private final Field field;
 
-    public FieldOptionElement(Field field, String optionName, Option option, Class<?> optionType, ValueAwareNotationParser<?> notationParser) {
+    public FieldOptionElement(Field field, String optionName, Option option, Class<?> optionType, NotationParser<CharSequence, ?> notationParser) {
         super(optionName, option, optionType, field.getDeclaringClass(), notationParser);
         this.field = field;
         getSetter();
@@ -69,8 +69,8 @@ public class FieldOptionElement extends AbstractOptionElement {
     public void apply(Object object, List<String> parameterValues) {
         if (getOptionType() == Void.TYPE && parameterValues.size() == 0) {
             setFieldValue(object, true);
-        } else if (parameterValues.size() > 1) {
-            throw new IllegalArgumentException(String.format("Lists not supported for option"));
+        } else if (parameterValues.size() > 1  || List.class.equals(getOptionType())) {
+            setFieldValue(object, parameterValues);
         } else {
             Object arg = getNotationParser().parseNotation(parameterValues.get(0));
             setFieldValue(object, arg);

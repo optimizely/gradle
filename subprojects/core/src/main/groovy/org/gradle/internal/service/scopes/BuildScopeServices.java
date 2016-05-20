@@ -25,12 +25,14 @@ import org.gradle.api.internal.artifacts.DefaultModule;
 import org.gradle.api.internal.artifacts.DependencyManagementServices;
 import org.gradle.api.internal.artifacts.ModuleInternal;
 import org.gradle.api.internal.artifacts.configurations.DependencyMetaDataProvider;
+import org.gradle.api.internal.changedetection.state.CachingFileSnapshotter;
 import org.gradle.api.internal.classpath.ModuleRegistry;
 import org.gradle.api.internal.classpath.PluginModuleRegistry;
 import org.gradle.api.internal.component.ComponentTypeRegistry;
 import org.gradle.api.internal.component.DefaultComponentTypeRegistry;
 import org.gradle.api.internal.file.FileLookup;
 import org.gradle.api.internal.file.FileResolver;
+import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
 import org.gradle.api.internal.initialization.DefaultScriptHandlerFactory;
 import org.gradle.api.internal.initialization.ScriptHandlerFactory;
 import org.gradle.api.internal.initialization.loadercache.ClassLoaderCache;
@@ -185,15 +187,11 @@ public class BuildScopeServices extends DefaultServiceRegistry {
         );
     }
 
-    protected ScriptCompilerFactory createScriptCompileFactory(ListenerManager listenerManager, FileCacheBackedScriptClassCompiler scriptCompiler, ClassLoaderCache classLoaderCache) {
+    protected ScriptCompilerFactory createScriptCompileFactory(ListenerManager listenerManager, FileCacheBackedScriptClassCompiler scriptCompiler,
+                                                               CrossBuildInMemoryCachingScriptClassCache cache) {
         ScriptExecutionListener scriptExecutionListener = listenerManager.getBroadcaster(ScriptExecutionListener.class);
         return new DefaultScriptCompilerFactory(
-            new CachingScriptClassCompiler(
-                new ShortCircuitEmptyScriptCompiler(
-                    scriptCompiler,
-                    classLoaderCache
-                )
-            ),
+            new BuildScopeInMemoryCachingScriptClassCompiler(cache, scriptCompiler),
             new DefaultScriptRunnerFactory(
                 scriptExecutionListener,
                 DirectInstantiator.INSTANCE
@@ -203,7 +201,8 @@ public class BuildScopeServices extends DefaultServiceRegistry {
 
     protected FileCacheBackedScriptClassCompiler createFileCacheBackedScriptClassCompiler(
         CacheRepository cacheRepository, final StartParameter startParameter,
-        ProgressLoggerFactory progressLoggerFactory, ClassLoaderCache classLoaderCache, ImportsReader importsReader) {
+        ProgressLoggerFactory progressLoggerFactory, ClassLoaderCache classLoaderCache, ImportsReader importsReader,
+        CachingFileSnapshotter snapshotter, ClassLoaderRegistry registry) {
         CacheValidator scriptCacheInvalidator = new CacheValidator() {
             public boolean isValid() {
                 return !startParameter.isRecompileScripts();
@@ -213,8 +212,10 @@ public class BuildScopeServices extends DefaultServiceRegistry {
             cacheRepository,
             scriptCacheInvalidator,
             new DefaultScriptCompilationHandler(classLoaderCache, importsReader),
-            progressLoggerFactory
-        );
+            progressLoggerFactory,
+            snapshotter,
+            classLoaderCache,
+            registry);
     }
 
     protected ScriptPluginFactory createScriptObjectConfigurerFactory() {
@@ -225,6 +226,7 @@ public class BuildScopeServices extends DefaultServiceRegistry {
             get(ScriptHandlerFactory.class),
             get(PluginRequestApplicator.class),
             get(FileLookup.class),
+            get(DirectoryFileTreeFactory.class),
             get(DocumentationRegistry.class),
             get(ModelRuleSourceDetector.class)
         );

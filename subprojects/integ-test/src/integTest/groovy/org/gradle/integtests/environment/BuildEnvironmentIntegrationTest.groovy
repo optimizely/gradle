@@ -127,7 +127,7 @@ assert classesDir.directory
         noExceptionThrown()
     }
 
-    @IgnoreIf({ AvailableJavaHomes.differentJdk == null})
+    @IgnoreIf({ AvailableJavaHomes.differentJdk == null })
     def "java home from environment should be used to run build"() {
         def alternateJavaHome = AvailableJavaHomes.differentJdk.javaHome
 
